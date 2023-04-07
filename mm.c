@@ -95,7 +95,7 @@ team_t team = {
 #define PUT(p, val)  (*(unsigned int *)(p)) = (val)
 /* 인자 p가 가리키는 워드에 val을 저장 */
 
-/* 주소 p에 있는 헤더 또는 푸터의 size를 리턴
+/* 주소 p에 있는 헤더 또는 푸터의 바이트 size를 리턴
     : p에 0x19(10진수로 25)가 저장돼있다 치자,
     해당 연산은 & ~0x7을 통해 하위 3비트를 지워준다.
     그래서 25에 대해 GET_SIZE(25)를 하면, 결과로 0x18(10진수로 24)가 나오는데
@@ -166,8 +166,8 @@ int mm_init(void)
     PUT(heap_listp + (3*WSIZE), PACK(0, 1)); // 에필로그 헤더,  0001 저장(0사이즈, alloc알려주는 1비트)
     heap_listp += (2*WSIZE); // 프롤로그 푸터위치로 이동
 
-    /* 힙을  */
-    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
+    /* 힙을 CHUNKSIZE만큼 확장 */
+    if (extend_heap(CHUNKSIZE/WSIZE) == NULL) // CHUNKSIZE(바이트)에 WSIZE로 나눠주어서 워드로 변환
         return -1;
 
     return 0;
@@ -177,21 +177,26 @@ int mm_init(void)
     1. 힙이 초기화될 때
     2. mm_malloc이 적당한 맞춤 fit을 찾지 못했을때
     -> 두가지 경우에서 호출됨
+
+    - 요청받는 words는 "워드"
+    - 이 "워드"는 무조건 8의 배수로 값이 들어옴
 */
 static void *extend_heap(size_t words)
 {
     char *bp;
     size_t size;
 
-    /* 요청한 크기를 정렬을 유지하기 위해 인접 2워드의 배수(8바이트)로 반올림 */
+    /* 요청한 크기를 정렬을 유지하기 위해 인접 2워드의 배수(8바이트)로 올림
+       -> extendsize가 25면, words는 6이되고, 따라서 size는 24가 되는데, 이러면 확장하려는 크기보다 작아지지 않나?
+     */
     size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
-    if ((long)(bp = mem_sbrk(size)) == -1) // 메모리 시스템에게 추가적인 힙 공간 요청
+    if ((long)(bp = mem_sbrk(size)) == -1) // 메모리 시스템에게 추가적인 힙 공간 요청 -> bp는 새로이 할당받은 공간의 시작주소 가리킴
         return NULL; // 예외처리
     
     /* free block의 헤더/푸터 , 에필로그 헤더를 초기화 */
-    PUT(HDRP(bp), PACK(size, 0)); // 새 가용 블록의 헤더
-    PUT(FTRP(bp), PACK(size, 0)); // 새 가용 블록의 푸터
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); // 새 에필로그 블록 헤더
+    PUT(HDRP(bp), PACK(size, 0)); // 새 가용 블록의 헤더 - 기존 에필로그 헤더를 새로이 할당받은 블록의 헤더로 바꿈
+    PUT(FTRP(bp), PACK(size, 0)); // 새 가용 블록의 푸터 
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); // 새 에필로그 블록 헤더 - 새로운 program_break 
 
     /* 이전 블록이 free라면 두개의 가용 블록을 통합후 통합된 블록의 블록 포인터 리턴  */
     return coalesce(bp);
@@ -291,7 +296,7 @@ static void *find_fit(size_t asize)
     return NULL; // NO fit
 }
 
-/* bp포인터가 할당받을 공간을 가리키는 포인터? */
+/* 가용 블록의 분할 방식 중 - "분할" 방식 선택(가용 블록을 두 부분으로 나눔) */
 static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp));
@@ -341,19 +346,38 @@ void mm_free(void *bp)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
+    size_t old_size = GET_SIZE(HDRP(ptr));
+    void* new_ptr;
     
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-      return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-      copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    if (!ptr) {
+        return mm_malloc(size);
+    }
+    if (!size) {
+        mm_free(ptr);
+        return;
+    }
+
+    size_t asize;
+    if (size <= DSIZE)
+        asize = 2 * DSIZE; 
+    else 
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
+
+    // 새로이 할당받을 사이즈가 이전 사이즈보다 작으면
+    if (asize <= old_size) 
+    {
+        // 기존 사이즈를 줄여주면 됨
+        place(ptr, asize);
+        return ptr;
+    } 
+    // 새로이 할당받을 사이즈가 이전 사이즈보다 크면
+    else 
+    {
+        new_ptr = mm_malloc(asize); // 새로 malloc으로 공간할당받고,
+        memcpy(new_ptr, ptr, old_size); // 해당 공간을 가리키는 포인터에 기존 값 복사
+        mm_free(ptr); // 기존 포인터 해제
+        return new_ptr;
+    }
 }
 
 
