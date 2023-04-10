@@ -145,7 +145,7 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
 /* Free list에서의 이전 , 이후의 "포인터"를 리턴  */
-/* 1.  bp 포인터(=PRED 포인터)를 void 포인터를 가리키는 포인터로 형변환 
+/* 1.  bp 포인터(=PREC 포인터)를 void 포인터를 가리키는 포인터로 형변환 
     PREC 자체가 이전을 가리키는 void 포인터, 이를 가리키는 이중 포인터를 만든 후
     해당 포인터에 대해 indirection을 해주면 직전 포인터로 넘어갈 수 있다
 */
@@ -162,7 +162,7 @@ static void removeBlock(void *bp);
 static void putFreeBlock(void *bp); 
 
 static char* heap_listp; // 포인터 연산시 1바이트씩 이동시키기 위해 static char 사용
-static char* free_listp; /* 가용 연결 리스트 */
+static char* free_listp; /* 가용 연결 리스트의 시작점 */
 
 /* 
  * mm_init - initialize the malloc package.
@@ -177,12 +177,11 @@ int mm_init(void)
 
     PUT(heap_listp, 0);  // 패딩
     PUT(heap_listp + (1*WSIZE), PACK(DSIZE * 2, 1)); /* 프롤로그 헤더 - 프롤로그 블록 사이즈 = 푸터 + 헤더 + prev + next = 16 */ 
-    PUT(heap_listp + (2*WSIZE), NULL);                /* PREC */
-    PUT(heap_listp + (3*WSIZE), NULL);                /* SUCC */
+    PUT(heap_listp + (2*WSIZE), NULL);                /* 프롤로그 블록의 PREC */
+    PUT(heap_listp + (3*WSIZE), NULL);                /* 프롤로그 블록의 SUCC */
     PUT(heap_listp + (4*WSIZE), PACK(DSIZE * 2, 1));  /* 프롤로그 푸터 */
     PUT(heap_listp + (5*WSIZE), PACK(0, 1));          /* 에필로그 헤더 */
-    free_listp  = heap_listp + 2 * WSIZE;            // 가용 연결리스트의 시작점 = 맨처음 PREC
-    // heap_listp += (2*WSIZE);                         // 프롤로그 푸터위치로 이동 
+    free_listp  = heap_listp + 2 * WSIZE;            // 가용 연결리스트의 시작점 = 맨처음 PREC = 프롤로그 블록의 bp
 
     /* 힙을 CHUNKSIZE만큼 확장 */
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL) // CHUNKSIZE(바이트)에 WSIZE로 나눠주어서 워드로 변환
@@ -312,7 +311,9 @@ static void *find_fit(size_t asize)
     void *bp;
 
     /* free list의 맨 뒤는 프롤로그 블록, 이는 free list에서 유일하게 "할당된"(비트가 1인)블록이므로, 얘를 만나면 탐색 종료
-        -> free list의 맨 뒤에 어떻게 프롤로그 블록이 들어가는지 이해 안됨. init에서 heap_listp와 free_listp 위치가 이해 안되는 것과 연결된문제인듯
+        -> free_listp는 맨 처음에 프롤로그 블록을 가리킨다, 
+        - 이후 블록이 삽입되면 프롤로그 블록 이전에 들어가고, free_listp(시작점)도 그곳으로 이동한다
+        - 프롤로그 블록은 항상 가용 연결리스트의 마지막에 존재한다
      */
     for (bp = free_listp; GET_ALLOC(HDRP(bp)) != 1; bp = SUCC_FREEP(bp)) { 
         if (asize <= GET_SIZE(HDRP(bp))) 
@@ -423,28 +424,6 @@ void *mm_realloc(void *ptr, size_t size)
     memcpy(newPtr, oldptr, copySize);
     mm_free(oldptr);
     return newPtr;
-
-    // size_t asize;
-    // if (size <= DSIZE)
-    //     asize = 2 * DSIZE; 
-    // else 
-    //     asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
-
-    // // 새로이 할당받을 사이즈가 이전 사이즈보다 작으면
-    // if (asize <= old_size) 
-    // {
-    //     // 기존 사이즈를 줄여주면 됨
-    //     place(ptr, asize);
-    //     return ptr;
-    // } 
-    // // 새로이 할당받을 사이즈가 이전 사이즈보다 크면
-    // else 
-    // {
-    //     new_ptr = mm_malloc(asize); // 새로 malloc으로 공간할당받고,
-    //     memcpy(new_ptr, ptr, old_size); // 해당 공간을 가리키는 포인터에 기존 값 복사
-    //     mm_free(ptr); // 기존 포인터 해제
-    //     return new_ptr;
-    // }
 }
 
 
