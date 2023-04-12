@@ -107,7 +107,6 @@ static void delete_node(void *ptr);
 
 ///////////////////////////////// Block information /////////////////////////////////////////////////////////
 /*
-
  
 A   : Allocated? (1: true, 0:false)
 RA  : Reallocation tag (1: true, 0:false)
@@ -145,7 +144,6 @@ bp+WSIZE--> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+-
             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
  Footer :   |                              size of the block                                       |     | A|
             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
-
  
  
 */
@@ -223,7 +221,6 @@ static void delete_node(void *ptr) {
     int list = 0; // segregated_free_list에서의 인덱스 역할
 
     size_t size = GET_SIZE(HDRP(ptr)); // 삭제하려는 노드의 사이즈
-    /* 왜 사이즈를 반씩 줄여가며 적절한 크기 클래스를 찾는지...   */
     // Select segregated list 
     while ((list < LISTLIMIT - 1) && (size > 1)) {
         size >>= 1; 
@@ -301,8 +298,6 @@ static void *place(void *ptr, size_t asize)
     }
     
     /* 큰 블록에 대해서는 뒤쪽 블럭할당 */
-    /* 120 = 2^7 - 8 */
-    // else if (asize >= 120) { - 왜 120??
     else { 
         // Split block
         PUT(HDRP(ptr), PACK(remainder, 0)); 
@@ -313,15 +308,7 @@ static void *place(void *ptr, size_t asize)
         insert_node(ptr, remainder); // 분할한 가용 블럭 segregate_free_list 어딘가에 넣음
         return NEXT_BLKP(ptr); // 할당 블럭에 대한 포인터 리턴
     }
-    
-    // else { /* 왜 여기는 앞쪽 블럭을 할당함 ??? */
-    //     // Split block
-    //     PUT(HDRP(ptr), PACK(asize, 1)); 
-    //     PUT(FTRP(ptr), PACK(asize, 1)); 
-    //     PUT(HDRP(NEXT_BLKP(ptr)), PACK(remainder, 0)); 
-    //     PUT(FTRP(NEXT_BLKP(ptr)), PACK(remainder, 0)); 
-    //     insert_node(NEXT_BLKP(ptr), remainder);
-    // }
+
     return ptr;
 }
 //////////////////////////////////////// End of Helper functions ////////////////////////////////////////
@@ -450,13 +437,7 @@ void mm_free(void *ptr)
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
- *
- * Role : The mm_realloc routine returns a pointer to an allocated 
- *        region of at least size bytes with constraints.
- *
- *  I used https://github.com/htian/malloc-lab/blob/master/mm.c source idea to maximize utilization
- *  by using reallocation tags
- *  in reallocation cases (realloc-bal.rep, realloc2-bal.rep)
+
  */
 void *mm_realloc(void *ptr, size_t size)
 {
@@ -509,13 +490,3 @@ void *mm_realloc(void *ptr, size_t size)
     // Return the reallocated block 
     return new_ptr;
 }
-
-
-
-
-
-
-
-
-
-
