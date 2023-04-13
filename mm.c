@@ -1,17 +1,4 @@
-/*
- * mm.c - malloc using segregated list
- * KAIST
- * Tony Kim
- * 
- * In this approach, 
- * Every block has a header and a footer 
- * in which header contains size, and allocation info
- * and footer contains size and allocation info.
- * Free list are tagged to the segregated list.
- * Therefore all free block contains pointer to the predecessor and successor.
- * The segregated list headers are organized by 2^k size.
- * 
- */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -51,10 +38,9 @@ team_t team = {
 #define CHUNKSIZE (1<<12)//+(1<<7) 
 
 #define LISTLIMIT     20      
-#define REALLOC_BUFFER  (1<<7)    
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y)) 
-#define MIN(x, y) ((x) < (y) ? (x) : (y)) 
+// #define MIN(x, y) ((x) < (y) ? (x) : (y)) 
 
 // Pack a size and allocated bit into a word
 #define PACK(size, alloc) ((size) | (alloc))
@@ -73,6 +59,7 @@ team_t team = {
 // Address of block's header and footer 
 #define HDRP(ptr) ((char *)(ptr) - WSIZE)
 #define FTRP(ptr) ((char *)(ptr) + GET_SIZE(HDRP(ptr)) - DSIZE)
+
 
 // Address of (physically) next and previous blocks 
 #define NEXT_BLKP(ptr) ((char *)(ptr) + GET_SIZE((char *)(ptr) - WSIZE))
