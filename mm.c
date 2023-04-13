@@ -5,7 +5,7 @@
  * 
  * In this approach, 
  * Every block has a header and a footer 
- * in which header contains reallocation information, size, and allocation info
+ * in which header contains size, and allocation info
  * and footer contains size and allocation info.
  * Free list are tagged to the segregated list.
  * Therefore all free block contains pointer to the predecessor and successor.
@@ -69,7 +69,6 @@ team_t team = {
 // Read the size and allocation bit from address p 
 #define GET_SIZE(p)  (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1) // A태그 확인
-#define GET_TAG(p)   (GET(p) & 0x2) // RA태그 확인
 
 // Address of block's header and footer 
 #define HDRP(ptr) ((char *)(ptr) - WSIZE)
@@ -102,15 +101,12 @@ static void *place(void *ptr, size_t asize);
 static void insert_node(void *ptr, size_t size);
 static void delete_node(void *ptr);
 
-//static void checkheap(int verbose);
-
 
 ///////////////////////////////// Block information /////////////////////////////////////////////////////////
 /*
+
  
 A   : Allocated? (1: true, 0:false)
-RA  : Reallocation tag (1: true, 0:false)
- 
  < Allocated Block >
  
  
@@ -128,11 +124,11 @@ RA  : Reallocation tag (1: true, 0:false)
             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
  
  
- < Free block >
+ < Free block : SUCC과 PRED에 대한 정보 포함 >
  
              31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
- Header :   |                              size of the block                                       |  |RA| A|
+ Header :   |                              size of the block                                       |  |  | A|
     bp ---> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
             |                        pointer to its predecessor in Segregated list                          |
 bp+WSIZE--> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
@@ -144,12 +140,13 @@ bp+WSIZE--> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+-
             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
  Footer :   |                              size of the block                                       |     | A|
             +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+
  
  
 */
 ///////////////////////////////// End of Block information /////////////////////////////////////////////////////////
 
-//////////////////////////////////////// Helper functions //////////////////////////////////////////////////////////
+//////////////////////////////////////// 보조 함수 //////////////////////////////////////////////////////////
 static void *extend_heap(size_t size)
 {
     void *ptr;                   
@@ -164,9 +161,9 @@ static void *extend_heap(size_t size)
     PUT(HDRP(ptr), PACK(asize, 0));  
     PUT(FTRP(ptr), PACK(asize, 0));   
     PUT(HDRP(NEXT_BLKP(ptr)), PACK(0, 1)); 
-    insert_node(ptr, asize);
+    insert_node(ptr, asize); // segregated list의 적절한 위치에 extend한 블록을 넣는다
 
-    return coalesce(ptr);
+    return coalesce(ptr); // 전,후 블록 확인해서 가용하면 합친다.
 }
 
 static void insert_node(void *ptr, size_t size) {
@@ -174,7 +171,10 @@ static void insert_node(void *ptr, size_t size) {
     void *search_ptr = ptr;
     void *insert_ptr = NULL;
     
-    // Select segregated list 
+    // Select segregated list
+    // 범위          : 0~1  2~3  4~7  8~15  16~31  32~63  64~127
+    // 인덱스(list)  : 0    1    2    3     4      5      6
+    // size(ex:80)  : 80   40   20    10   5       2     1 -> 여기!!  
     while ((list < LISTLIMIT - 1) && (size > 1)) {
         size >>= 1;
         list++; 
@@ -182,13 +182,15 @@ static void insert_node(void *ptr, size_t size) {
     
     // Keep size ascending order and search
     search_ptr = segregated_free_lists[list];
-    /* 가용 리스트는 오름차순 정렬, 역으로 탐색하다 자기 자리가 나오면 탐색 멈춤 */
+    /* 가용 리스트는 뒤에서부터 오름차순 정렬 
+        search_ptr, 즉 앞서가는 포인터가 나보다 크면 멈춤
+    */
     while ((search_ptr != NULL) && (size > GET_SIZE(HDRP(search_ptr)))) {
         insert_ptr = search_ptr;
         search_ptr = PRED(search_ptr);
     }
     
-    // Set predecessor and successor 
+    /* 연결리스트의 앞, 뒤를 적절히 연결 */
     if (search_ptr != NULL) {
         if (insert_ptr != NULL) {
             SET_PTR(PRED_PTR(ptr), search_ptr);
@@ -227,6 +229,7 @@ static void delete_node(void *ptr) {
         list++;
     }
     
+    /* 연결리스트에서 ptr 삭제 */
     if (PRED(ptr) != NULL) {
         if (SUCC(ptr) != NULL) {
             SET_PTR(SUCC_PTR(PRED(ptr)), SUCC(ptr)); 
@@ -289,19 +292,18 @@ static void *place(void *ptr, size_t asize)
     size_t ptr_size = GET_SIZE(HDRP(ptr));
     size_t remainder = ptr_size - asize;
     
-    delete_node(ptr); // segregated_free_list에서 적절한 연결리스트를 찾아서, ptr을 제거해줌
+    delete_node(ptr); // segregated_free_list에서 ptr이 들어있는 연결리스트를 찾아서, ptr을 제거해줌
     
     if (remainder <= DSIZE * 2) { // 분할할 수 없음 
         // Do not split block 
         PUT(HDRP(ptr), PACK(ptr_size, 1)); 
         PUT(FTRP(ptr), PACK(ptr_size, 1)); 
     }
-    
     /* 큰 블록에 대해서는 뒤쪽 블럭할당 */
     else { 
         // Split block
         PUT(HDRP(ptr), PACK(remainder, 0)); 
-        PUT(FTRP(ptr), PACK(remainder, 0));
+        PUT(FTRP(ptr), PACK(remainder, 0)); // 앞블록 free로
 
         PUT(HDRP(NEXT_BLKP(ptr)), PACK(asize, 1));
         PUT(FTRP(NEXT_BLKP(ptr)), PACK(asize, 1));
@@ -359,7 +361,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    size_t asize;      /* Adjusted block size */
+    size_t asize;      /* Adjusted block size (더블워드 정렬) */
     size_t extendsize; /* Amount to extend heap if no fit */
     void *ptr = NULL;  /* Pointer */
     
@@ -382,21 +384,18 @@ void *mm_malloc(size_t size)
         /* segregated_list에서 asize를 포함할 수 있는 크기 클래스에 도달했다면 */
         if ((list == LISTLIMIT - 1) || ((searchsize <= 1) && (segregated_free_lists[list] != NULL))) {
             ptr = segregated_free_lists[list];
-            // 연결 리스트를 뒤로 탐색하면서 ... 근데 사실 제일 큰 공간이 연결리스트의 맨 뒤에 있기때문에, 
-            // 연결리스트의 맨 뒤(제일 큰 공간)에 할당해주는 느낌이네
-            // 스택같이 제일 뒤(제일 큰) 공간이 LIFO형식으로 할당됨
-            // 만약 해당 연결리스트의 맨 뒤 공간이 asize보다 작다면, 무조건 연결리스트 맨 끝까지 가게 되고,
-            // 다음 크기 클래스로 넘어가게 됨
+            
+            // 연결리스트를 탐색, 오름차순으로 정렬된 리스트 탐색하다가 나보다 크거나 같은 공간 있으면 멈춘다
             while ((ptr != NULL) && ((asize > GET_SIZE(HDRP(ptr)))))
             {   
                 ptr = PRED(ptr);
             }
-            if (ptr != NULL) // 해당 연결리스트에서 적절한 공간 찾은 경우(연결리스트 맨 뒤가 충분히 큰 경우)
+            if (ptr != NULL) // 해당 연결리스트에서 적절한 공간 찾은 경우
                 break;
         }
         
-        searchsize >>= 1;
-        list++;
+        searchsize >>= 1; 
+        list++; // 연결리스트의 범위(segregated_free_list가 가리키는 각 연결리스트 이동) 늘려가며 탐색
     }
     
     // if free block is not found, extend the heap
@@ -429,15 +428,14 @@ void mm_free(void *ptr)
     PUT(HDRP(ptr), PACK(size, 0));
     PUT(FTRP(ptr), PACK(size, 0));
     
-    insert_node(ptr, size); // seg_list 어딘가 적절한 곳에 삽입
-    coalesce(ptr);
+    insert_node(ptr, size); // free된 블록 seg_list 어딘가 적절한 곳에 삽입
+    coalesce(ptr); // 앞뒤 블록 살펴서 합쳐준다
     
     return;
 }
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
-
  */
 void *mm_realloc(void *ptr, size_t size)
 {
@@ -462,7 +460,7 @@ void *mm_realloc(void *ptr, size_t size)
         /* 1. 다음 블록을 사용하는 경우 */
         /* remainder: 현재 블록에 가용한 다음 블럭의 크기를 더한것에서, 새로 할당할 사이즈를 뺀 것 */
         remainder = GET_SIZE(HDRP(ptr)) + GET_SIZE(HDRP(NEXT_BLKP(ptr))) - new_size; 
-        if (remainder < 0) { // ,...?
+        if (remainder < 0) { 
             extendsize = MAX(-remainder, CHUNKSIZE); // remainder의 역수와 CHUNKSIZE중 더 큰것 만큼 
             if (extend_heap(extendsize) == NULL)     // 힙을 연장해줌
                 return NULL;
@@ -471,7 +469,7 @@ void *mm_realloc(void *ptr, size_t size)
         
         delete_node(NEXT_BLKP(ptr));
         
-        /* 경우에 따른 블럭의 크기 */
+        /* 경우에 따른 재할당 블럭의 크기 */
         // if ptr+next 크기 >= new_size:
             // ptr + next 블럭 사이즈만큼 사이즈 잡아줌 
         //  if -remainder > CHUNK && ptr+next 크기 < new_size 크기:
@@ -490,3 +488,14 @@ void *mm_realloc(void *ptr, size_t size)
     // Return the reallocated block 
     return new_ptr;
 }
+
+
+
+
+
+
+
+
+
+
+
